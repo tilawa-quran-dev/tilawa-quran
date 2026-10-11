@@ -1,0 +1,40 @@
+name: Build Tilawa APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unzip project
+        run: |
+          test -f project.zip || { echo "project.zip not found"; exit 1; }
+          rm -rf proj && mkdir proj && unzip -q project.zip -d proj
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - name: Fetch Quran text (fails if incomplete)
+        working-directory: proj
+        run: python3 scripts/fetch_quran.py
+      - name: Fetch font
+        working-directory: proj
+        run: |
+          mkdir -p app/src/main/assets/fonts
+          curl -fL -o app/src/main/assets/fonts/AmiriQuran.ttf https://github.com/google/fonts/raw/main/ofl/amiriquran/AmiriQuran-Regular.ttf || echo "font download failed, default font will be used"
+      - name: Test and build
+        working-directory: proj
+        run: gradle testDebugUnitTest assembleDebug --no-daemon
+      - name: Publish APK as Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp proj/app/build/outputs/apk/debug/app-debug.apk Tilawa.apk
+          gh release create "build-${{ github.run_number }}" Tilawa.apk --title "Tilawa build ${{ github.run_number }}" --notes "Debug APK"
